@@ -61,7 +61,14 @@ class OSRMRouter:
             ):
                 raise ValueError("Invalid route distance or coordinates")
             return Route(points, miles)
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        except (
+            httpx.HTTPError,
+            ValueError,
+            KeyError,
+            IndexError,
+            TypeError,
+            AttributeError,
+        ) as exc:
             logger.warning("route_provider_failed type=%s", type(exc).__name__)
             raise ProviderFailure("Routing service is unavailable") from exc
         finally:

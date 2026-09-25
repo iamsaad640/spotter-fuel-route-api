@@ -1,0 +1,2 @@
+# Preserve assessment bytes and keep source-data noise out of code review diffs.
+data/fuel-prices-for-be-assessment.csv -diff
