@@ -1,3 +1,5 @@
-from django.urls import URLPattern, URLResolver
+from django.urls import path
 
-urlpatterns: list[URLPattern | URLResolver] = []
+from routefuel.api import plan_route
+
+urlpatterns = [path("api/v1/fuel-route", plan_route, name="fuel-route")]
