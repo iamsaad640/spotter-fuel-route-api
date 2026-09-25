@@ -6,6 +6,8 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    env:
+      DJANGO_DEBUG: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

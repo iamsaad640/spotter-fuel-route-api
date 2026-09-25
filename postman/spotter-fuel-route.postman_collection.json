@@ -1,0 +1,28 @@
+{
+  "info": {
+    "name": "Spotter Fuel Route API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Local coordinate requests. The routing demo provider requires outbound network access."
+  },
+  "variable": [{"key": "baseUrl", "value": "http://127.0.0.1:8000"}],
+  "item": [
+    {
+      "name": "Dallas to Los Angeles",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\"start\":{\"latitude\":32.7767,\"longitude\":-96.7970},\"finish\":{\"latitude\":34.0522,\"longitude\":-118.2437}}"},
+        "url": "{{baseUrl}}/api/v1/fuel-route"
+      }
+    },
+    {
+      "name": "Same origin and destination - 400",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\"start\":{\"latitude\":32.7767,\"longitude\":-96.7970},\"finish\":{\"latitude\":32.7767,\"longitude\":-96.7970}}"},
+        "url": "{{baseUrl}}/api/v1/fuel-route"
+      }
+    }
+  ]
+}

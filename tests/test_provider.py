@@ -38,6 +38,7 @@ def test_one_provider_call_for_coordinates():
     "payload",
     [
         {},
+        [],
         {"routes": []},
         {
             "routes": [
@@ -73,3 +74,8 @@ def test_no_route():
 def test_invalid_url_configuration():
     with pytest.raises(ValueError):
         OSRMRouter("http://example.com")
+
+
+def test_non_json_response():
+    with pytest.raises(ProviderFailure):
+        router(lambda _: httpx.Response(200, text="not json")).route(Point(32, -96), Point(33, -95))
