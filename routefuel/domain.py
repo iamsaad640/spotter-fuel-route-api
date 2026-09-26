@@ -24,6 +24,7 @@ class Station:
     price: Decimal
     point: Point
     source_row: int
+    location_source: str = "city_centroid"
 
 
 @dataclass(frozen=True)

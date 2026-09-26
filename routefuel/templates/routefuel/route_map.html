@@ -133,8 +133,9 @@
     <ol id="stops" aria-label="Fuel stops"></ol>
 
     <p class="note">
-      Prices come from the supplied OPIS file. Stations are placed at their city's centre,
-      because the file has no coordinates. <a href="{% url 'docs' %}">API documentation</a>
+      Prices come from the supplied OPIS file, which has no coordinates. Stations sit at the
+      highway exit their address names, found in OpenStreetMap, or at their city's centre
+      when it names none. <a href="{% url 'docs' %}">API documentation</a>
     </p>
   </aside>
 
@@ -217,7 +218,8 @@
         const details = element("div");
         details.append(
           element("div", "stop-name", stop.name),
-          element("div", "stop-meta", `${where} · mile ${number.format(stop.route_mile)} · $${Number(stop.price_per_gallon_usd).toFixed(3)}/gal`),
+          element("div", "stop-meta", `${stop.address}, ${where}`),
+          element("div", "stop-meta", `Mile ${number.format(stop.route_mile)} · $${Number(stop.price_per_gallon_usd).toFixed(3)}/gal`),
         );
         const cost = element("div", "stop-buy");
         cost.append(element("strong", "", usd.format(stop.cost_usd)), element("small", "", `${stop.gallons} gal`));

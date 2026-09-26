@@ -12,7 +12,7 @@ from .corridor import find_candidates
 from .domain import Candidate, FuelPlan, FuelPlanInfeasibleError, Point, Route, Vehicle
 from .optimizer import optimize
 from .routing import OSRMRouter
-from .stations import StationIndex, load_stations
+from .stations import StationIndex, build_station_index
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ def default_planner() -> FuelRoutePlanner:
     config = settings.FUEL_ROUTE
     return FuelRoutePlanner(
         router=OSRMRouter(config["ROUTING_BASE_URL"], config["ROUTING_TIMEOUT_SECONDS"]),
-        stations=StationIndex(load_stations(config["FUEL_PRICES_CSV"])),
+        stations=build_station_index(config["FUEL_PRICES_CSV"], config["STATION_LOCATIONS_CSV"]),
         corridor_miles=config["CORRIDOR_MILES"],
         origin_radius_miles=config["ORIGIN_RADIUS_MILES"],
         stop_penalty_usd=config["STOP_PENALTY_USD"],

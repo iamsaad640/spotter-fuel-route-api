@@ -1,8 +1,9 @@
-"""Immutable source CSV -> validated US stations with ZIP-derived city coordinates."""
+"""Immutable source CSV -> validated US stations, placed at their exit or city centroid."""
 
 import csv
 import logging
 from collections import defaultdict
+from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
@@ -14,9 +15,9 @@ from .geo import haversine_miles, unit_vectors
 from .places import US_STATE_CODES, PlaceDirectory, default_directory
 
 logger = logging.getLogger(__name__)
-FUEL_PRICES_CSV = (
-    Path(__file__).resolve().parent.parent / "data" / "fuel-prices-for-be-assessment.csv"
-)
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+FUEL_PRICES_CSV = DATA_DIR / "fuel-prices-for-be-assessment.csv"
+STATION_LOCATIONS_CSV = DATA_DIR / "station-locations.csv"
 COLUMNS = [
     "OPIS Truckstop ID",
     "Truckstop Name",
@@ -28,8 +29,27 @@ COLUMNS = [
 ]
 
 
-def load_stations(path: Path, places: PlaceDirectory | None = None) -> tuple[Station, ...]:
+LOCATION_COLUMNS = ["opis_id", "latitude", "longitude", "osm_node_id"]
+
+
+def load_exit_locations(path: Path) -> dict[int, Point]:
+    with path.open(encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        if reader.fieldnames != LOCATION_COLUMNS:
+            raise ValueError("Unexpected station location CSV schema")
+        return {
+            int(row["opis_id"]): Point(float(row["latitude"]), float(row["longitude"]))
+            for row in reader
+        }
+
+
+def load_stations(
+    path: Path,
+    places: PlaceDirectory | None = None,
+    exit_locations: Mapping[int, Point] | None = None,
+) -> tuple[Station, ...]:
     places = places or default_directory()
+    exit_locations = exit_locations or {}
     by_id: dict[int, list[tuple[int, dict[str, str], Decimal]]] = defaultdict(list)
     rejected: dict[str, int] = defaultdict(int)
     with path.open(encoding="utf-8-sig", newline="") as file:
@@ -73,6 +93,7 @@ def load_stations(path: Path, places: PlaceDirectory | None = None) -> tuple[Sta
         if place is None:
             rejected["no_city_coordinate"] += len(records)
             continue
+        exit_point = exit_locations.get(identifier)
         stations.append(
             Station(
                 identifier,
@@ -81,12 +102,18 @@ def load_stations(path: Path, places: PlaceDirectory | None = None) -> tuple[Sta
                 row["State"].strip().upper(),
                 row["Address"].strip(),
                 price,
-                place.point,
+                exit_point or place.point,
                 line,
+                "osm_exit" if exit_point else "city_centroid",
             )
         )
         rejected["duplicate_rows"] += len(records) - 1
-    logger.info("stations_loaded usable=%s rejected=%s", len(stations), dict(rejected))
+    logger.info(
+        "stations_loaded usable=%s at_exit=%s rejected=%s",
+        len(stations),
+        sum(s.location_source == "osm_exit" for s in stations),
+        dict(rejected),
+    )
     return tuple(stations)
 
 
@@ -115,4 +142,9 @@ class StationIndex:
 
 @lru_cache(maxsize=1)
 def default_station_index() -> StationIndex:
-    return StationIndex(load_stations(FUEL_PRICES_CSV))
+    return build_station_index(FUEL_PRICES_CSV, STATION_LOCATIONS_CSV)
+
+
+def build_station_index(prices_csv: Path, locations_csv: Path) -> StationIndex:
+    exit_locations = load_exit_locations(locations_csv) if locations_csv.exists() else {}
+    return StationIndex(load_stations(prices_csv, exit_locations=exit_locations))
