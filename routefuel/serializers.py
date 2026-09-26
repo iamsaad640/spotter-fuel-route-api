@@ -118,6 +118,11 @@ class FuelStopSerializer(serializers.Serializer):
     state = serializers.CharField(source="candidate.station.state")
     latitude = serializers.FloatField(source="candidate.station.point.latitude")
     longitude = serializers.FloatField(source="candidate.station.point.longitude")
+    location_source = serializers.ChoiceField(
+        choices=["osm_exit", "city_centroid"],
+        source="candidate.station.location_source",
+        help_text="osm_exit: the highway exit named in the address; city_centroid: approximate.",
+    )
     route_mile = RoundedFloatField(1, source="candidate.route_mile")
     miles_off_route = RoundedFloatField(1, source="candidate.offset_miles")
     price_per_gallon_usd = serializers.CharField(source="candidate.station.price")

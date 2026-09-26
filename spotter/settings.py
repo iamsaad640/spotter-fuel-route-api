@@ -116,6 +116,10 @@ FUEL_ROUTE = {
     "FUEL_PRICES_CSV": Path(
         os.getenv("FUEL_PRICES_CSV", BASE_DIR / "data" / "fuel-prices-for-be-assessment.csv")
     ),
+    "STATION_LOCATIONS_CSV": Path(
+        os.getenv("STATION_LOCATIONS_CSV", BASE_DIR / "data" / "station-locations.csv")
+    ),
+    "OVERPASS_URL": os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter"),
 }
 
 LOGGING = {

@@ -100,7 +100,10 @@ class FuelRouteView(APIView):
                 "starting_fuel_gallons": starting_gallons,
                 "stop_penalty_usd": planner.stop_penalty_usd,
                 "station_corridor_miles": planner.corridor_miles,
-                "station_locations": "city centroid from ZIP data; the CSV has no coordinates",
+                "station_locations": (
+                    "OpenStreetMap exit node where the address names an exit, "
+                    "otherwise the city centroid; the CSV has no coordinates"
+                ),
             },
             "meta": {
                 "request_id": current_request_id(),
