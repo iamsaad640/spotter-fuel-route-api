@@ -9,6 +9,12 @@ class Point:
 
 
 @dataclass(frozen=True)
+class Place:
+    label: str
+    point: Point
+
+
+@dataclass(frozen=True)
 class Station:
     id: int
     name: str
@@ -43,4 +49,8 @@ class ProviderFailure(Exception):
 
 
 class InvalidRoute(Exception):
+    pass
+
+
+class PlaceNotFoundError(ValueError):
     pass
