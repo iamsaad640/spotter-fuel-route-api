@@ -1,0 +1,31 @@
+services:
+  api:
+    build: .
+    image: spotter-fuel-route-api:local
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-insecure-local-compose-key-change-me}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      REDIS_URL: redis://redis:6379/0
+      ROUTING_BASE_URL: ${ROUTING_BASE_URL:-https://router.project-osrm.org}
+      FUEL_STOP_PENALTY_USD: ${FUEL_STOP_PENALTY_USD:-10}
+      FUEL_ROUTE_RATE_LIMIT: ${FUEL_ROUTE_RATE_LIMIT:-60/min}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.8-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped

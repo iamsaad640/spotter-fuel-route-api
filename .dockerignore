@@ -1,0 +1,10 @@
+*
+!pyproject.toml
+!uv.lock
+!manage.py
+!gunicorn.conf.py
+!data/
+!spotter/
+!routefuel/
+**/__pycache__
+**/*.py[cod]
