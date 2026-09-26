@@ -67,13 +67,3 @@ python scripts/benchmark.py
 ```
 
 The optimizer tests include an exhaustive bounded reference solver across price permutations, full/empty boundaries, sparse gaps, detours, and price inversions. Provider tests assert exactly one HTTP call and cover malformed JSON, invalid geometry, timeout, and no route. Benchmarks use a deterministic synthetic route, excluding external network latency. On the assessment runner (Python 3.12, cold process, synthetic 1,450-mile route), 6,622 US stations loaded in 1,293 ms, 146 candidates matched in 223 ms, and three stops optimized in 88 ms. Warm requests reuse the parsed station index. A complete warm Django request with a counting fake router took 298 ms and invoked that router once; the fake excludes network latency. This excludes live provider latency; outbound access to the demo service was unavailable in the assessment runtime. Exact timings vary by machine; run the script locally for yours. The GitHub workflow runs all quality checks on each PR.
-
-## Five-minute walkthrough
-
-1. **0:00–0:45:** Problem and missing station coordinates; show immutable CSV and normalization policy.
-2. **0:45–2:00:** Show the three fuel constraints and the expensive/cheap station adversarial test.
-3. **2:00–3:15:** POST the curl sample; point out map geometry, fuel gallons, total, request ID, and the one provider call.
-4. **3:15–4:15:** Show one failure case and the fake provider call-count test; mention city-centroid limits.
-5. **4:15–5:00:** Show measured benchmark, CI checks, and the first change needed for real pump coordinates.
-
-Record the demonstration in Loom and submit the resulting video URL alongside this repository. Do not substitute the example JSON above for a live API demonstration.

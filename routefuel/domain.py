@@ -42,6 +42,10 @@ class Route:
     miles: float
     duration_seconds: float = 0.0
 
+    @property
+    def duration_hours(self) -> float:
+        return self.duration_seconds / 3600
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -63,6 +67,7 @@ class FuelPlan:
     route: Route
     purchases: tuple[Purchase, ...]
     starting_gallons: float
+    routing_calls: int = 1
 
     @property
     def total_cost(self) -> Decimal:
