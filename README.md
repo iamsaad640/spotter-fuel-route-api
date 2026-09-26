@@ -4,21 +4,20 @@ A Django 6.1 API that obtains one driving route and computes the cheapest feasib
 
 ## Run
 
-Python 3.12+ required. From a clean checkout:
+With Docker (API on http://localhost:8000, Redis for the shared cache):
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install -e '.[dev]'
-cp .env.example .env
-# Development: export DJANGO_DEBUG=true; production: export the values from .env securely.
-export DJANGO_DEBUG=true
-python manage.py check
-python manage.py migrate --noinput
-python manage.py runserver
+docker compose up --build
 ```
 
-The app has no persisted models; SQLite is configured for Django tooling only. `.env` is illustrative: Django does not read it automatically. Set variables in your shell or deployment process. In production set `DJANGO_DEBUG=false`, a strong `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, and enable `DJANGO_SECURE_SSL_REDIRECT` behind a correctly configured TLS proxy.
+Without Docker, using [uv](https://docs.astral.sh/uv/):
+
+```bash
+make install   # uv sync --locked
+make run       # development server on :8000
+```
+
+`requirements.txt` is exported from `uv.lock` for plain `pip install -r requirements.txt` setups. See `.env.example` for configuration.
 
 ## Request
 
@@ -56,14 +55,8 @@ The JSON above illustrates the **schema**, not an actual computed Dallas–Los A
 ## Verify
 
 ```bash
-python -m ruff format --check .
-python -m ruff check .
-python -m mypy routefuel spotter
-python manage.py check
-python -m coverage run -m pytest -q
-python -m coverage report -m
-python -m pip check
-python scripts/benchmark.py
+make check   # ruff, mypy, pytest with coverage
+make bench   # stage timings on a recorded cross-country route
 ```
 
 The optimizer tests include an exhaustive bounded reference solver across price permutations, full/empty boundaries, sparse gaps, detours, and price inversions. Provider tests assert exactly one HTTP call and cover malformed JSON, invalid geometry, timeout, and no route. Benchmarks use a deterministic synthetic route, excluding external network latency. On the assessment runner (Python 3.12, cold process, synthetic 1,450-mile route), 6,622 US stations loaded in 1,293 ms, 146 candidates matched in 223 ms, and three stops optimized in 88 ms. Warm requests reuse the parsed station index. A complete warm Django request with a counting fake router took 298 ms and invoked that router once; the fake excludes network latency. This excludes live provider latency; outbound access to the demo service was unavailable in the assessment runtime. Exact timings vary by machine; run the script locally for yours. The GitHub workflow runs all quality checks on each PR.

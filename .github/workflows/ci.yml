@@ -1,24 +1,70 @@
 name: CI
+
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  checks:
+  quality:
     runs-on: ubuntu-latest
-    env:
-      DJANGO_DEBUG: 'true'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
-          python-version: '3.12'
-          cache: pip
-      - run: python -m pip install -e '.[dev]'
-      - run: python -m ruff format --check .
-      - run: python -m ruff check .
-      - run: python -m mypy routefuel spotter
-      - run: python manage.py check
-      - run: python -m coverage run -m pytest -q
-      - run: python -m coverage report -m
-      - run: python -m pip check
+          version: "0.12.19"
+          enable-cache: true
+      - run: uv sync --locked
+      - name: requirements.txt matches uv.lock
+        run: |
+          uv export --locked --no-dev --no-hashes --no-annotate --format requirements-txt --output-file /tmp/requirements.txt
+          diff -u requirements.txt /tmp/requirements.txt
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy routefuel spotter
+      - run: uv run coverage run -m pytest -q
+      - run: uv run coverage report
+      - name: OpenAPI schema is valid
+        env:
+          DJANGO_DEBUG: "true"
+        run: uv run python manage.py spectacular --validate --fail-on-warn --file /dev/null
+      - name: Production settings pass Django's deployment checks
+        env:
+          DJANGO_SECRET_KEY: ci-only-${{ github.run_id }}-9f2c6c1e0b7d4a3f8e5d2c1b0a9f8e7d6c5b4a39
+          DJANGO_BEHIND_TLS_PROXY: "true"
+          DJANGO_SECURE_SSL_REDIRECT: "true"
+          DJANGO_SECURE_HSTS_SECONDS: "31536000"
+          DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS: "true"
+          DJANGO_SECURE_HSTS_PRELOAD: "true"
+        run: uv run python manage.py check --deploy --fail-level WARNING
+
+  container:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and start the Compose stack
+        run: docker compose up --build --detach --wait --wait-timeout 120
+      - name: Smoke test the running container
+        run: |
+          curl --fail --silent http://localhost:8000/healthz | grep -q '"status": "ok"'
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -d '{"start": "Nowhere, ZZ", "finish": "Houston, TX"}' \
+            http://localhost:8000/api/v1/fuel-route)" = 400
+          curl --fail --silent --output /dev/null http://localhost:8000/api/docs
+          curl --fail --silent --output /dev/null http://localhost:8000/map
+          docker compose exec -T api id -u | grep -qx 10001
+      - name: Container logs
+        if: failure()
+        run: docker compose logs
+      - run: docker compose down
+        if: always()

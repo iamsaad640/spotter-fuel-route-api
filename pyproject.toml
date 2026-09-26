@@ -1,27 +1,33 @@
-[build-system]
-requires = ["setuptools>=75"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "spotter-fuel-route-api"
-version = "0.1.0"
+version = "1.0.0"
+description = "Django API that plans a US truck route and its cheapest fuel stops."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "Django==6.1.1",
-    "djangorestframework==3.18.1",
-    "drf-spectacular==0.30.0",
-    "httpx==0.28.1",
-    "numpy==2.5.3",
-    "redis==8.1.0",
-    "scipy==1.17.0",
-    "zipcodes==2.0.1",
+    "django~=6.1.1",
+    "djangorestframework~=3.18.1",
+    "drf-spectacular~=0.30.0",
+    "gunicorn~=26.2",
+    "httpx~=0.28.1",
+    "numpy~=2.5",
+    "redis~=8.1",
+    "scipy~=1.17",
+    "zipcodes~=2.0",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest==8.4.2", "pytest-django==4.11.1", "ruff==0.13.3", "hypothesis==6.140.3", "coverage==7.10.7", "mypy==1.18.2"]
+[dependency-groups]
+dev = [
+    "coverage~=7.10",
+    "hypothesis~=6.140",
+    "mypy~=1.18",
+    "pytest~=8.4",
+    "pytest-django~=4.11",
+    "ruff~=0.13.3",
+]
 
-[tool.setuptools.packages.find]
-include = ["spotter*", "routefuel*"]
+[tool.uv]
+package = false
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "tests.settings"
@@ -31,6 +37,7 @@ filterwarnings = ["error"]
 
 [tool.ruff]
 line-length = 100
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -43,3 +50,7 @@ check_untyped_defs = true
 
 [tool.coverage.run]
 source = ["routefuel"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
