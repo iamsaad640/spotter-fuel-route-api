@@ -1,28 +1,129 @@
 {
   "info": {
-    "name": "Spotter Fuel Route API",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Local coordinate requests. The routing demo provider requires outbound network access."
+    "name": "Fuel Route API",
+    "description": "Plans a US route with the cheapest fuel stops. Successful plans render on a map in the Visualize tab.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "variable": [{"key": "baseUrl", "value": "http://127.0.0.1:8000"}],
+  "variable": [{ "key": "baseUrl", "value": "http://localhost:8000" }],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const body = pm.response.json();",
+          "pm.test('responds with a request id', () => pm.expect(pm.response.headers.get('X-Request-ID')).to.be.a('string'));",
+          "if (pm.response.code !== 200 || !body.route) { return; }",
+          "pm.test('makes at most one routing call', () => pm.expect(body.meta.routing_calls).to.be.at.most(1));",
+          "pm.test('total equals the sum of the stops', () => {",
+          "  const sum = body.fuel_stops.reduce((total, stop) => total + Number(stop.cost_usd), 0);",
+          "  pm.expect(sum.toFixed(2)).to.eql(body.total_fuel_cost_usd);",
+          "});",
+          "const template = `",
+          "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css\">",
+          "<style>body{margin:0;font:13px system-ui,sans-serif} #summary{padding:8px 12px} #map{height:560px}</style>",
+          "<div id=\"summary\"></div><div id=\"map\"></div>",
+          "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js\"></script>",
+          "<script>",
+          "pm.getData((error, plan) => {",
+          "  document.getElementById('summary').textContent =",
+          "    plan.start.label + ' to ' + plan.finish.label + ': ' + plan.distance_miles + ' mi, ' +",
+          "    plan.fuel_stops.length + ' stops, $' + plan.total_fuel_cost_usd;",
+          "  const map = L.map('map');",
+          "  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);",
+          "  const route = L.geoJSON(plan.route, { style: { color: '#0f766e', weight: 5 } }).addTo(map);",
+          "  plan.fuel_stops.forEach((stop, i) => {",
+          "    L.circleMarker([stop.latitude, stop.longitude], { radius: 8, color: '#fff', weight: 2, fillColor: '#c2410c', fillOpacity: 1 })",
+          "      .bindTooltip((i + 1) + '. ' + stop.name + ': ' + stop.gallons + ' gal at $' + stop.price_per_gallon_usd)",
+          "      .addTo(map);",
+          "  });",
+          "  map.fitBounds(route.getBounds(), { padding: [20, 20] });",
+          "});",
+          "</script>`;",
+          "pm.visualizer.set(template, body);"
+        ]
+      }
+    }
+  ],
   "item": [
     {
-      "name": "Dallas to Los Angeles",
+      "name": "Plan by city names",
       "request": {
         "method": "POST",
-        "header": [{"key": "Content-Type", "value": "application/json"}],
-        "body": {"mode": "raw", "raw": "{\"start\":{\"latitude\":32.7767,\"longitude\":-96.7970},\"finish\":{\"latitude\":34.0522,\"longitude\":-118.2437}}"},
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"Los Angeles, CA\"\n}" },
         "url": "{{baseUrl}}/api/v1/fuel-route"
       }
     },
     {
-      "name": "Same origin and destination - 400",
+      "name": "Plan by ZIP codes",
       "request": {
         "method": "POST",
-        "header": [{"key": "Content-Type", "value": "application/json"}],
-        "body": {"mode": "raw", "raw": "{\"start\":{\"latitude\":32.7767,\"longitude\":-96.7970},\"finish\":{\"latitude\":32.7767,\"longitude\":-96.7970}}"},
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"60601\",\n  \"finish\": \"77002\"\n}" },
         "url": "{{baseUrl}}/api/v1/fuel-route"
       }
+    },
+    {
+      "name": "Plan by coordinates",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": {\"latitude\": 47.6062, \"longitude\": -122.3321},\n  \"finish\": {\"latitude\": 25.7617, \"longitude\": -80.1918}\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/fuel-route"
+      }
+    },
+    {
+      "name": "Truck starts with a full tank",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Dallas, TX\",\n  \"finish\": \"Denver, CO\",\n  \"starting_fuel_gallons\": 50\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/fuel-route"
+      }
+    },
+    {
+      "name": "Plan with a query string",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/fuel-route?start=Chicago, IL&finish=Houston, TX",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "fuel-route"],
+          "query": [
+            { "key": "start", "value": "Chicago, IL" },
+            { "key": "finish", "value": "Houston, TX" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Misspelled city (400 with suggestions)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"Springfeld, IL\",\n  \"finish\": \"Houston, TX\"\n}" },
+        "url": "{{baseUrl}}/api/v1/fuel-route"
+      }
+    },
+    {
+      "name": "Outside the contiguous US (400)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"Honolulu, HI\",\n  \"finish\": \"Seattle, WA\"\n}" },
+        "url": "{{baseUrl}}/api/v1/fuel-route"
+      }
+    },
+    {
+      "name": "Health check",
+      "request": { "method": "GET", "url": "{{baseUrl}}/healthz" }
     }
   ]
 }
