@@ -7,10 +7,16 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 
-from .domain import Station
+import numpy as np
+
+from .domain import Point, Station
+from .geo import haversine_miles, unit_vectors
 from .places import US_STATE_CODES, PlaceDirectory, default_directory
 
 logger = logging.getLogger(__name__)
+FUEL_PRICES_CSV = (
+    Path(__file__).resolve().parent.parent / "data" / "fuel-prices-for-be-assessment.csv"
+)
 COLUMNS = [
     "OPIS Truckstop ID",
     "Truckstop Name",
@@ -80,12 +86,33 @@ def load_stations(path: Path, places: PlaceDirectory | None = None) -> tuple[Sta
             )
         )
         rejected["duplicate_rows"] += len(records) - 1
-    logger.info("station_index_loaded usable=%s rejected=%s", len(stations), dict(rejected))
+    logger.info("stations_loaded usable=%s rejected=%s", len(stations), dict(rejected))
     return tuple(stations)
 
 
+class StationIndex:
+    def __init__(self, stations: tuple[Station, ...]):
+        self.stations = stations
+        self.latitudes = np.array([s.point.latitude for s in stations], dtype=float)
+        self.longitudes = np.array([s.point.longitude for s in stations], dtype=float)
+        self.unit_vectors = unit_vectors(self.latitudes, self.longitudes)
+        self.prices = np.array([float(s.price) for s in stations], dtype=float)
+
+    def __len__(self) -> int:
+        return len(self.stations)
+
+    def cheapest_near(self, point: Point, radius_miles: float) -> tuple[Station, float] | None:
+        """Cheapest station within the radius, nearest first on equal price."""
+        distances = haversine_miles(
+            point.latitude, point.longitude, self.latitudes, self.longitudes
+        )
+        within = np.flatnonzero(distances <= radius_miles)
+        if not len(within):
+            return None
+        best = within[np.lexsort((distances[within], self.prices[within]))[0]]
+        return self.stations[best], float(distances[best])
+
+
 @lru_cache(maxsize=1)
-def default_stations() -> tuple[Station, ...]:
-    return load_stations(
-        Path(__file__).resolve().parent.parent / "data/fuel-prices-for-be-assessment.csv"
-    )
+def default_station_index() -> StationIndex:
+    return StationIndex(load_stations(FUEL_PRICES_CSV))

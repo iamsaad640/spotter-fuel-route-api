@@ -17,6 +17,7 @@ include = ["spotter*", "routefuel*"]
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "spotter.settings"
 testpaths = ["tests"]
+filterwarnings = ["error"]
 
 [tool.ruff]
 line-length = 100
