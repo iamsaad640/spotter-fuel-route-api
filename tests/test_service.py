@@ -60,6 +60,25 @@ def test_origin_station_is_the_cheapest_nearby_and_not_repeated():
     assert plan.total_cost == Decimal("28.25")
 
 
+class UnavailableCache:
+    def get(self, key):
+        raise ConnectionError("cache down")
+
+    def set(self, key, value, timeout):
+        raise ConnectionError("cache down")
+
+
+def test_an_unavailable_route_cache_falls_back_to_the_provider():
+    station = Station(1, "Near", "C", "TX", "A", Decimal("3"), Point(35.0, -100.01), 1)
+    route = Route((Point(35, -100), Point(35, -98)), 113)
+    planner = FuelRoutePlanner(
+        FixedRouter(route), StationIndex((station,)), route_cache=UnavailableCache()
+    )
+    plan = planner.plan(route.points[0], route.points[-1])
+    assert plan.routing_calls == 1
+    assert plan.total_cost == Decimal("33.90")
+
+
 def test_empty_tank_without_a_nearby_station_explains_the_fix():
     far = Station(1, "Far", "C", "TX", "A", Decimal("3"), Point(36.0, -100), 1)
     route = Route((Point(35, -100), Point(35, -98)), 113)

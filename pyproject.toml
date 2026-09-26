@@ -6,7 +6,16 @@ build-backend = "setuptools.build_meta"
 name = "spotter-fuel-route-api"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["Django==6.1.1", "httpx==0.28.1", "zipcodes==2.0.1", "scipy==1.17.0"]
+dependencies = [
+    "Django==6.1.1",
+    "djangorestframework==3.18.1",
+    "drf-spectacular==0.30.0",
+    "httpx==0.28.1",
+    "numpy==2.5.3",
+    "redis==8.1.0",
+    "scipy==1.17.0",
+    "zipcodes==2.0.1",
+]
 
 [project.optional-dependencies]
 dev = ["pytest==8.4.2", "pytest-django==4.11.1", "ruff==0.13.3", "hypothesis==6.140.3", "coverage==7.10.7", "mypy==1.18.2"]
@@ -15,7 +24,8 @@ dev = ["pytest==8.4.2", "pytest-django==4.11.1", "ruff==0.13.3", "hypothesis==6.
 include = ["spotter*", "routefuel*"]
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "spotter.settings"
+DJANGO_SETTINGS_MODULE = "tests.settings"
+pythonpath = ["."]
 testpaths = ["tests"]
 filterwarnings = ["error"]
 

@@ -1,15 +1,18 @@
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Protocol
 
+from django.conf import settings
+from django.core.cache import cache
+from django.core.cache.backends.base import BaseCache
+
 from .corridor import find_candidates
 from .domain import Candidate, FuelPlan, FuelPlanInfeasibleError, Point, Route, Vehicle
 from .optimizer import optimize
 from .routing import OSRMRouter
-from .stations import StationIndex, default_station_index
+from .stations import StationIndex, load_stations
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +29,11 @@ class FuelRoutePlanner:
     corridor_miles: float = 12.0
     origin_radius_miles: float = 25.0
     stop_penalty_usd: float = 10.0
+    route_cache: BaseCache | None = None
+    route_cache_seconds: int = 24 * 60 * 60
 
     def plan(self, start: Point, finish: Point, starting_gallons: float = 0.0) -> FuelPlan:
-        route = self.router.route(start, finish)
+        route, routing_calls = self._route(start, finish)
         started = time.perf_counter()
         candidates = self._candidates(route, starting_gallons)
         purchases = optimize(
@@ -39,13 +44,36 @@ class FuelRoutePlanner:
             stop_penalty_usd=self.stop_penalty_usd,
         )
         logger.info(
-            "fuel_plan_ms=%.1f route_miles=%.1f candidates=%s stops=%s",
+            "fuel_plan_ms=%.1f route_miles=%.1f candidates=%s stops=%s routing_calls=%s",
             1000 * (time.perf_counter() - started),
             route.miles,
             len(candidates),
             len(purchases),
+            routing_calls,
         )
-        return FuelPlan(route, purchases, starting_gallons)
+        return FuelPlan(route, purchases, starting_gallons, routing_calls)
+
+    def _route(self, start: Point, finish: Point) -> tuple[Route, int]:
+        if self.route_cache is None:
+            return self.router.route(start, finish), 1
+        key = (
+            f"route:v1:{start.latitude:.5f},{start.longitude:.5f}:"
+            f"{finish.latitude:.5f},{finish.longitude:.5f}"
+        )
+        # The cache only saves provider calls; an unavailable cache must not fail a request.
+        try:
+            cached = self.route_cache.get(key)
+        except Exception:
+            logger.warning("route_cache_read_failed", exc_info=True)
+            cached = None
+        if isinstance(cached, Route):
+            return cached, 0
+        route = self.router.route(start, finish)
+        try:
+            self.route_cache.set(key, route, self.route_cache_seconds)
+        except Exception:
+            logger.warning("route_cache_write_failed", exc_info=True)
+        return route, 1
 
     def _candidates(self, route: Route, starting_gallons: float) -> tuple[Candidate, ...]:
         along_route = find_candidates(route, self.stations, self.corridor_miles)
@@ -68,12 +96,13 @@ class FuelRoutePlanner:
 
 @lru_cache(maxsize=1)
 def default_planner() -> FuelRoutePlanner:
+    config = settings.FUEL_ROUTE
     return FuelRoutePlanner(
-        router=OSRMRouter(
-            os.getenv("ROUTING_BASE_URL", "https://router.project-osrm.org"),
-            float(os.getenv("ROUTING_TIMEOUT_SECONDS", "12")),
-        ),
-        stations=default_station_index(),
-        corridor_miles=float(os.getenv("ROUTE_CORRIDOR_MILES", "12")),
-        stop_penalty_usd=float(os.getenv("FUEL_STOP_PENALTY_USD", "10")),
+        router=OSRMRouter(config["ROUTING_BASE_URL"], config["ROUTING_TIMEOUT_SECONDS"]),
+        stations=StationIndex(load_stations(config["FUEL_PRICES_CSV"])),
+        corridor_miles=config["CORRIDOR_MILES"],
+        origin_radius_miles=config["ORIGIN_RADIUS_MILES"],
+        stop_penalty_usd=config["STOP_PENALTY_USD"],
+        route_cache=cache,
+        route_cache_seconds=config["ROUTE_CACHE_SECONDS"],
     )
