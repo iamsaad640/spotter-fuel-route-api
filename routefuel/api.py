@@ -8,8 +8,14 @@ import uuid
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from .domain import InvalidRoute, Point, ProviderFailure, UnserviceableRoute
-from .service import default_service
+from .domain import (
+    FuelPlan,
+    FuelPlanInfeasibleError,
+    Point,
+    RouteNotFoundError,
+    RoutingProviderError,
+)
+from .service import default_planner
 
 logger = logging.getLogger(__name__)
 
@@ -54,24 +60,49 @@ def plan_route(request: HttpRequest) -> JsonResponse:
     except (ValueError, UnicodeDecodeError, TypeError) as exc:
         return error("invalid_request", str(exc), 400, request_id)
     try:
-        result = default_service().plan(start, finish)
-    except InvalidRoute as exc:
+        plan = default_planner().plan(start, finish)
+    except RouteNotFoundError as exc:
         return error("route_unavailable", str(exc), 422, request_id)
-    except UnserviceableRoute as exc:
+    except FuelPlanInfeasibleError as exc:
         return error("fuel_coverage_unavailable", str(exc), 422, request_id)
-    except ProviderFailure:
+    except RoutingProviderError:
         return error(
             "routing_provider_unavailable",
             "Routing service is temporarily unavailable",
             502,
             request_id,
         )
-    except RuntimeError:
-        logger.exception("optimization_failed request_id=%s", request_id)
-        return error(
-            "optimization_unavailable", "Fuel optimization could not complete", 503, request_id
-        )
-    result["request_id"] = request_id
-    response = JsonResponse(result)
+    response = JsonResponse({**plan_to_json(plan), "request_id": request_id})
     response["X-Request-ID"] = request_id
     return response
+
+
+def plan_to_json(plan: FuelPlan) -> dict:
+    return {
+        "route": {
+            "type": "LineString",
+            "coordinates": [[p.longitude, p.latitude] for p in plan.route.points],
+        },
+        "route_miles": round(plan.route.miles, 2),
+        "fuel_stops": [
+            {
+                "opis_id": p.candidate.station.id,
+                "name": p.candidate.station.name,
+                "address": p.candidate.station.address,
+                "city": p.candidate.station.city,
+                "state": p.candidate.station.state,
+                "location": [
+                    p.candidate.station.point.longitude,
+                    p.candidate.station.point.latitude,
+                ],
+                "route_mile": round(p.candidate.route_mile, 2),
+                "offset_miles": round(p.candidate.offset_miles, 2),
+                "price_per_gallon_usd": str(p.candidate.station.price),
+                "gallons": str(p.gallons),
+                "cost_usd": str(p.cost),
+            }
+            for p in plan.purchases
+        ],
+        "total_fuel_cost_usd": str(plan.total_cost),
+        "assumptions": {"starting_fuel_gallons": plan.starting_gallons, "mpg": 10},
+    }

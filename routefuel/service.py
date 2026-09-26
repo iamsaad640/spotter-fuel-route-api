@@ -1,77 +1,79 @@
 import logging
 import os
 import time
-from dataclasses import dataclass
-from decimal import Decimal
+from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import Protocol
 
-from .domain import Point
-from .matching import match_stations
+from .corridor import find_candidates
+from .domain import Candidate, FuelPlan, FuelPlanInfeasibleError, Point, Route, Vehicle
 from .optimizer import optimize
 from .routing import OSRMRouter
-from .stations import default_stations
+from .stations import StationIndex, default_station_index
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class FuelRouteService:
-    router: OSRMRouter
-    corridor_miles: float = 12
+class Router(Protocol):
+    def route(self, start: Point, finish: Point) -> Route: ...
 
-    def plan(self, start: Point, finish: Point) -> dict:
+
+@dataclass
+class FuelRoutePlanner:
+    router: Router
+    stations: StationIndex
+    vehicle: Vehicle = field(default_factory=Vehicle)
+    corridor_miles: float = 12.0
+    origin_radius_miles: float = 25.0
+    stop_penalty_usd: float = 10.0
+
+    def plan(self, start: Point, finish: Point, starting_gallons: float = 0.0) -> FuelPlan:
         route = self.router.route(start, finish)
-        start_time = time.perf_counter()
-        candidates = match_stations(route, default_stations(), self.corridor_miles)
-        logger.info("route_miles=%.2f candidate_count=%s", route.miles, len(candidates))
-        purchases = optimize(candidates, route.miles)
+        started = time.perf_counter()
+        candidates = self._candidates(route, starting_gallons)
+        purchases = optimize(
+            candidates,
+            route.miles,
+            starting_gallons=starting_gallons,
+            vehicle=self.vehicle,
+            stop_penalty_usd=self.stop_penalty_usd,
+        )
         logger.info(
-            "optimization_ms=%.1f fuel_stops=%s",
-            1000 * (time.perf_counter() - start_time),
+            "fuel_plan_ms=%.1f route_miles=%.1f candidates=%s stops=%s",
+            1000 * (time.perf_counter() - started),
+            route.miles,
+            len(candidates),
             len(purchases),
         )
-        return {
-            "route": {
-                "type": "LineString",
-                "coordinates": [[p.longitude, p.latitude] for p in route.points],
-            },
-            "route_miles": round(route.miles, 2),
-            "fuel_stops": [
-                {
-                    "opis_id": p.candidate.station.id,
-                    "name": p.candidate.station.name,
-                    "address": p.candidate.station.address,
-                    "city": p.candidate.station.city,
-                    "state": p.candidate.station.state,
-                    "location": [
-                        p.candidate.station.point.longitude,
-                        p.candidate.station.point.latitude,
-                    ],
-                    "mile_marker": round(p.candidate.mile, 2),
-                    "estimated_one_way_detour_miles": round(p.candidate.detour_miles, 2),
-                    "price_per_gallon_usd": str(p.candidate.station.price),
-                    "gallons": str(p.gallons),
-                    "cost_usd": str(p.cost),
-                }
-                for p in purchases
-            ],
-            "total_fuel_cost_usd": str(sum((p.cost for p in purchases), Decimal("0.00"))),
-            "assumptions": {
-                "starting_fuel_gallons": 50,
-                "max_range_miles": 500,
-                "mpg": 10,
-                "station_locations": "city ZIP centroid approximation",
-                "detours": "estimated straight-line round trip, not road-routed",
-            },
-        }
+        return FuelPlan(route, purchases, starting_gallons)
+
+    def _candidates(self, route: Route, starting_gallons: float) -> tuple[Candidate, ...]:
+        along_route = find_candidates(route, self.stations, self.corridor_miles)
+        # The trip begins with a fill-up at the cheapest station near the origin; an
+        # empty tank could not reach any other station.
+        origin = self.stations.cheapest_near(route.points[0], self.origin_radius_miles)
+        if origin is None:
+            if starting_gallons == 0:
+                raise FuelPlanInfeasibleError(
+                    f"No fuel station within {self.origin_radius_miles:.0f} miles of the start; "
+                    "set starting_fuel_gallons to plan from a fuelled truck"
+                )
+            return along_route
+        station, _ = origin
+        return (
+            Candidate(station, 0.0, 0.0),
+            *(c for c in along_route if c.station.id != station.id),
+        )
 
 
 @lru_cache(maxsize=1)
-def default_service() -> FuelRouteService:
-    return FuelRouteService(
-        OSRMRouter(
+def default_planner() -> FuelRoutePlanner:
+    return FuelRoutePlanner(
+        router=OSRMRouter(
             os.getenv("ROUTING_BASE_URL", "https://router.project-osrm.org"),
             float(os.getenv("ROUTING_TIMEOUT_SECONDS", "12")),
         ),
-        float(os.getenv("ROUTE_CORRIDOR_MILES", "12")),
+        stations=default_station_index(),
+        corridor_miles=float(os.getenv("ROUTE_CORRIDOR_MILES", "12")),
+        stop_penalty_usd=float(os.getenv("FUEL_STOP_PENALTY_USD", "10")),
     )

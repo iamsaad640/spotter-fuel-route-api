@@ -1,85 +1,63 @@
-"""Offline representative route benchmark; external provider latency is separate."""
+"""Stage latencies for a recorded New York -> Los Angeles OSRM response.
 
+The recorded response is served through the real OSRMRouter, so parsing is measured and
+only network time to the routing provider is excluded.
+"""
+
+import gzip
 import json
-import os
+import statistics
 import time
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import patch
 
+import httpx
+
+from routefuel.corridor import find_candidates
 from routefuel.domain import Point
-from routefuel.matching import match_stations
-from routefuel.optimizer import optimize
-from routefuel.routing import Route
-from routefuel.stations import default_stations, load_stations
+from routefuel.routing import OSRMRouter
+from routefuel.service import FuelRoutePlanner
+from routefuel.stations import FUEL_PRICES_CSV, StationIndex, load_stations
+
+FIXTURE = Path(__file__).resolve().parents[1] / "tests/fixtures/osrm_new_york_los_angeles.json.gz"
+NEW_YORK, LOS_ANGELES = Point(40.7128, -74.0060), Point(34.0522, -118.2437)
 
 
-def measured(task):
-    start = time.perf_counter()
-    value = task()
-    return value, round(1000 * (time.perf_counter() - start), 1)
+def timed[T](task: Callable[[], T], repeat: int = 1) -> tuple[T, float]:
+    samples = []
+    for _ in range(repeat):
+        started = time.perf_counter()
+        value = task()
+        samples.append(1000 * (time.perf_counter() - started))
+    return value, round(statistics.median(samples), 1)
 
 
-def main():
-    stations, ingestion_ms = measured(
-        lambda: load_stations(Path("data/fuel-prices-for-be-assessment.csv"))
-    )
-    route = Route(
-        (
-            Point(32.77, -96.80),
-            Point(32.26, -99.72),
-            Point(35.22, -101.83),
-            Point(35.08, -106.65),
-            Point(34.87, -111.46),
-            Point(33.45, -112.07),
-            Point(34.05, -118.24),
+def main() -> None:
+    recorded = gzip.decompress(FIXTURE.read_bytes())
+    router = OSRMRouter(
+        "https://router.project-osrm.org",
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, content=recorded))
         ),
-        1450,
     )
-    candidates, matching_ms = measured(lambda: match_stations(route, stations))
-    purchases, optimizer_ms = measured(lambda: optimize(candidates, route.miles))
-    # Include a complete Django request with a counting provider stub; no demo-server
-    # traffic or timing variance is hidden inside the offline benchmark.
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "spotter.settings")
-    import django
-
-    django.setup()
-    from django.test import Client
-
-    from routefuel.service import FuelRouteService
-
-    class CountingRouter:
-        calls = 0
-
-        def route(self, start, finish):
-            self.calls += 1
-            return route
-
-    default_stations()  # service cache is warm for the complete-request measurement
-    router = CountingRouter()
-    payload = {
-        "start": {"latitude": 32.77, "longitude": -96.80},
-        "finish": {"latitude": 34.05, "longitude": -118.24},
-    }
-    with patch("routefuel.api.default_service", return_value=FuelRouteService(router)):
-        response, request_ms = measured(
-            lambda: Client().post(
-                "/api/v1/fuel-route", data=json.dumps(payload), content_type="application/json"
-            )
-        )
+    stations, load_ms = timed(lambda: StationIndex(load_stations(FUEL_PRICES_CSV)))
+    route, parse_ms = timed(lambda: router.route(NEW_YORK, LOS_ANGELES), repeat=5)
+    candidates, corridor_ms = timed(lambda: find_candidates(route, stations, 12), repeat=5)
+    planner = FuelRoutePlanner(router, stations)
+    plan, plan_ms = timed(lambda: planner.plan(NEW_YORK, LOS_ANGELES), repeat=5)
     print(
         json.dumps(
             {
+                "route_miles": round(route.miles, 1),
+                "route_vertices": len(route.points),
                 "stations": len(stations),
-                "candidates": len(candidates),
-                "stops": len(purchases),
-                "ingestion_ms": ingestion_ms,
-                "matching_ms": matching_ms,
-                "optimizer_ms": optimizer_ms,
-                "offline_total_ms": ingestion_ms + matching_ms + optimizer_ms,
-                "external_routing_calls": 0,
-                "simulated_provider_calls": router.calls,
-                "complete_request_ms": request_ms,
-                "api_status": response.status_code,
+                "corridor_candidates": len(candidates),
+                "fuel_stops": len(plan.purchases),
+                "total_fuel_cost_usd": str(plan.total_cost),
+                "station_index_load_ms": load_ms,
+                "route_parse_ms": parse_ms,
+                "corridor_match_ms": corridor_ms,
+                "warm_plan_ms_median_of_5": plan_ms,
             },
             indent=2,
         )

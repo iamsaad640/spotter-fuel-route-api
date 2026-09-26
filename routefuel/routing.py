@@ -1,23 +1,16 @@
-"""One OSRM directions call, with provider failures kept out of the HTTP boundary."""
+"""OSRM driving directions: exactly one HTTP request per route."""
 
 import logging
 import math
 import time
-from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import httpx
 
-from .domain import InvalidRoute, Point, ProviderFailure
+from .domain import Point, Route, RouteNotFoundError, RoutingProviderError
 
 logger = logging.getLogger(__name__)
 MILES_PER_METER = 0.000621371192
-
-
-@dataclass(frozen=True)
-class Route:
-    points: tuple[Point, ...]
-    miles: float
 
 
 class OSRMRouter:
@@ -35,7 +28,7 @@ class OSRMRouter:
             f"{start.longitude:.6f},{start.latitude:.6f};"
             f"{finish.longitude:.6f},{finish.latitude:.6f}"
         )
-        start_time = time.perf_counter()
+        started = time.perf_counter()
         try:
             response = self.client.get(
                 f"{self.base_url}/route/v1/driving/{coordinates}",
@@ -43,12 +36,13 @@ class OSRMRouter:
             )
             response.raise_for_status()
             payload = response.json()
-            if payload.get("code") == "NoRoute":
-                raise InvalidRoute("No driving route is available for these locations")
+            if payload.get("code") in {"NoRoute", "NoSegment"}:
+                raise RouteNotFoundError("No driving route connects these locations")
             if payload.get("code") != "Ok":
                 raise ValueError("Unexpected provider status")
             route = payload["routes"][0]
             miles = float(route["distance"]) * MILES_PER_METER
+            duration = float(route.get("duration", 0.0))
             geometry = route["geometry"]
             if geometry["type"] != "LineString":
                 raise ValueError("Unexpected route geometry")
@@ -57,10 +51,11 @@ class OSRMRouter:
                 len(points) < 2
                 or not math.isfinite(miles)
                 or miles <= 0
+                or not math.isfinite(duration)
                 or any(not (-90 <= p.latitude <= 90 and -180 <= p.longitude <= 180) for p in points)
             ):
                 raise ValueError("Invalid route distance or coordinates")
-            return Route(points, miles)
+            return Route(points, miles, duration)
         except (
             httpx.HTTPError,
             ValueError,
@@ -69,7 +64,7 @@ class OSRMRouter:
             TypeError,
             AttributeError,
         ) as exc:
-            logger.warning("route_provider_failed type=%s", type(exc).__name__)
-            raise ProviderFailure("Routing service is unavailable") from exc
+            logger.warning("routing_provider_failed error=%s", type(exc).__name__)
+            raise RoutingProviderError("Routing service is unavailable") from exc
         finally:
-            logger.info("route_provider_latency_ms=%.1f", 1000 * (time.perf_counter() - start_time))
+            logger.info("routing_provider_ms=%.1f", 1000 * (time.perf_counter() - started))
